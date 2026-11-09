@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cercles - 1080x2400</title>
+    <style>
+        /* Reset et Configuration Base */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            color: white;
+            touch-action: none; /* Empêche le scroll sur mobile */
+        }
+
+        /* Conteneur principal forcé en 1080x2400 */
+        #game-container {
+            position: relative;
+            width: 1080px;
+            height: 2400px;
+            background-color: #000;
+            box-shadow: 0 0 50px rgba(255, 255, 255, 0.1);
+            transform-origin: center center;
+            overflow: hidden;
+        }
+
+        /* Canvas principal */
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Interfaces (Menu, HUD) */
+        .ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* Laisse passer les clics vers le canvas sauf sur les boutons */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .interactive {
+            pointer-events: auto;
+        }
+
+        /* Menu Principal */
+        #main-menu {
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 80px;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 5px;
+            color: #fff;
+            text-shadow: 0 0 20px rgba(255,255,255,0.5);
+        }
+
+        .btn {
+            background: transparent;
+            border: 4px solid #fff;
+            color: #fff;
+            padding: 30px 60px;
+            font-size: 40px;
+            margin: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-radius: 15px;
+            min-width: 400px;
+            text-align: center;
+        }
+
+        .btn:hover {
+            background: #fff;
+            color: #000;
+            transform: scale(1.05);
+        }
+
+        .mode-desc {
+            font-size: 24px;
+            color: #aaa;
+            margin-top: 10px;
+            display: block;
+        }
+
+        /* HUD Jeu */
+        #game-hud {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+            display: none; /* Caché par défaut */
+        }
+
+        .hud-top {
+            position: absolute;
+            top: 50px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 100px;
+            box-sizing: border-box;
+            font-size: 40px;
+            font-weight: bold;
+        }
+
+        .timer-bar-container {
+            position: absolute;
+            bottom: 100px;
+            left: 100px;
+            right: 100px;
+            height: 20px;
+            background: #333;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .timer-bar {
+            height: 100%;
+            background: #fff;
+            width: 100%;
+            transform-origin: left;
+        }
+
+        /* Écran Fin de partie */
+        #game-over {
+            background: rgba(0, 0, 0, 0.95);
+            z-index: 20;
+            display: none;
+        }
+
+        #final-score {
+            font-size: 60px;
+            margin-bottom: 40px;
+        }
+
+        /* Utilitaires affichage */
+        .hidden {
+            display: none !important;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <canvas id="gameCanvas" width="1080" height="2400"></canvas>
+
+        <!-- MENU PRINCIPAL -->
+        <div id="main-menu" class="ui-layer interactive">
+            <h1>NEON TIMER</h1>
+            
+            <button class="btn" onclick="startGame('infinite')">
+                INFINI
+                <span class="mode-desc">Survie : Ne laisse pas la barre rouge descendre</span>
+            </button>
+            
+            <button class="btn" onclick="startGame('timed')">
+                CONTRE-LA-MONTRE
+                <span class="mode-desc">10 secondes chrono</span>
+            </button>
+        </div>
+
+        <!-- HUD JEU -->
+        <div id="game-hud">
+            <div class="hud-top">
+                <div id="score-display">Score: 0</div>
+                <div id="time-display">Temps: --</div>
+            </div>
+            <div class="timer-bar-container" id="timer-container">
+                <div class="timer-bar" id="timer-bar"></div>
+            </div>
+        </div>
+
+        <!-- GAME OVER -->
+        <div id="game-over" class="ui-layer interactive">
+            <h1>TERMINÉ</h1>
+            <div id="final-score">Score Final: 0</div>
+            <button class="btn" onclick="showMenu()">MENU</button>
+        </div>
+    </div>
+
+<script>
+/**
+ * CONFIGURATION & ETAT DU JEU
+ */
+const CANVAS_W = 1080;
+const CANVAS_H = 2400;
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Element DOM
+const uiMenu = document.getElementById('main-menu');
+const uiHud = document.getElementById('game-hud');
+const uiGameOver = document.getElementById('game-over');
+const elScore = document.getElementById('score-display');
+const elTime = document.getElementById('time-display');
+const elTimerBar = document.getElementById('timer-bar');
+const elTimerContainer = document.getElementById('timer-container');
+const elFinalScore = document.getElementById('final-score');
+
+// Game State
+let gameState = {
+    mode: null, // 'infinite' or 'timed'
+    score: 0,
+    timeLeft: 0,
+    maxTime: 0,
+    isPlaying: false,
+    currentCircle: null,
+    circles: [], // Pour stocker les cercles actifs (animations)
+    lastSpawnTime: 0,
+    spawnRate: 2000, // ms
+    difficultyMultiplier: 1.0,
+    
+    // NEW: Système de survie (Infini)
+    survivalBarValue: 100, // 0 à 100
+    survivalBarMax: 100,
+    survivalDecayRate: 10, // Vitesse de baisse par seconde (ajuste pour faire ~2sec de survie)
+};
+
+// Input Handling
+let inputActive = false;
+let inputX = 0;
+let inputY = 0;
+let inputHistory = []; // Pour le swipe
+
+// Gestion du redimensionnement pour garder le ratio 1080x2400 centré
+function resize() {
+    const container = document.getElementById('game-container');
+    const windowRatio = window.innerWidth / window.innerHeight;
+    const gameRatio = CANVAS_W / CANVAS_H;
+    
+    let scale;
+    if (windowRatio < gameRatio) {
+        scale = window.innerWidth / CANVAS_W;
+    } else {
+        scale = window.innerHeight / CANVAS_H;
+    }
+    
+    container.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', resize);
+resize();
+
+/**
+ * CLASSES
+ */
+
+class Circle {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.baseRadius = 80;
+        this.radius = this.baseRadius;
+        this.type = type; // 'normal', 'tank', 'swipe'
+        this.color = '#fff';
+        this.markedForDeletion = false;
+        
+        // Propriétés spécifiques
+        this.hp = 1;
+        if (type === 'tank') {
+            this.hp = 3;
+            this.color = '#ffcc00'; // Jaune
+        } else if (type === 'swipe') {
+            this.color = '#00ccff'; // Bleu
+            this.generateSwipePath();
+        }
+
+        // Animation apparition
+        this.scale = 0;
+        this.targetScale = 1;
+    }
+
+    generateSwipePath() {
+        // Génère un chemin aléatoire autour du centre
+        this.path = [];
+        const points = 10;
+        const length = 300; // Longueur du trait
+        const angle = Math.random() * Math.PI * 2;
+        
+        this.pathStart = { x: this.x, y: this.y };
+        this.pathEnd = { 
+            x: this.x + Math.cos(angle) * length, 
+            y: this.y + Math.sin(angle) * length 
+        };
+        
+        // Points intermédiaires pour vérifier le tracé
+        this.pathMid = {
+            x: (this.pathStart.x + this.pathEnd.x) / 2 + (Math.random() - 0.5) * 100,
+            y: (this.pathStart.y + this.pathEnd.y) / 2 + (Math.random() - 0.5) * 100
+        };
+    }
+
+    update(dt) {
+        // Animation scale in
+        if (this.scale < this.targetScale) {
+            this.scale += dt * 5;
+            if (this.scale > this.targetScale) this.scale = this.targetScale;
+            this.radius = this.baseRadius * this.scale;
+        }
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.scale, this.scale);
+
+        // Dessin cercle
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        
+        if (this.type === 'swipe') {
+            // Visuel Swipe
+            ctx.fillStyle = 'rgba(0, 204, 255, 0.2)';
+            ctx.fill();
+            ctx.strokeStyle = '#00ccff';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+
+            // Dessin du trait guide
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(this.pathEnd.x - this.x, this.pathEnd.y - this.y);
+            ctx.strokeStyle = 'rgba(0, 204, 255, 0.5)';
+            ctx.setLineDash([20, 20]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Point final
+            ctx.beginPath();
+            ctx.arc(this.pathEnd.x - this.x, this.pathEnd.y - this.y, 20, 0, Math.PI*2);
+            ctx.fillStyle = '#00ccff';
+            ctx.fill();
+
+        } else if (this.type === 'tank') {
+            // Visuel Tank
+            ctx.fillStyle = `rgb(${255 - (this.hp * 50)}, ${200}, 0)`;
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 5;
+            ctx.stroke();
+
+            // Affichage HP
+            ctx.fillStyle = '#fff';
+            ctx.font = 'bold 60px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(this.hp, 0, 0);
+
+        } else {
+            // Normal
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+
+        ctx.restore();
+    }
+
+    checkHit(x, y) {
+        const dist = Math.hypot(x - this.x, y - this.y);
+        return dist <= this.radius;
+    }
+    
+    handleInputDown(x, y) {
+        if (this.type === 'normal' || this.type === 'tank') {
+            if (this.checkHit(x, y)) {
+                this.hp--;
+                if (this.hp <= 0) {
+                    this.markedForDeletion = true;
+                    return true; // Hit confirmé et détruit
+                } else {
+                    // Petit effet visuel dégât
+                    this.radius *= 0.9;
+                    setTimeout(() => this.radius = this.baseRadius, 100);
+                    return false; // Toujours actif
+                }
+            }
+        }
+        return false;
+    }
+
+    handleSwipeMove(x, y) {
+        if (this.type !== 'swipe') return false;
+        
+        // Logique simplifiée de swipe :
+        // 1. Vérifier si on a commencé près du centre
+        // 2. Vérifier si on passe proche du milieu
+        // 3. Vérifier si on touche la fin
+        
+        return false; // Géré via state machine dans le loop principal pour simplifier
+    }
+}
+
+/**
+ * LOGIQUE PRINCIPALE
+ */
+
+function startGame(mode) {
+    gameState.mode = mode;
+    gameState.score = 0;
+    gameState.isPlaying = true;
+    gameState.circles = [];
+    gameState.lastSpawnTime = performance.now();
+    gameState.difficultyMultiplier = 1.0;
+    gameState.spawnRate = 1500;
+
+    // Reset Survival Bar
+    gameState.survivalBarValue = 100;
+
+    if (mode === 'timed') {
+        gameState.timeLeft = 20; // 20 secondes pour ce mode
+        gameState.maxTime = 20;
+    } else {
+        gameState.timeLeft = 30; // 30 secondes initiales
+        gameState.maxTime = 30;
+    }
+
+    uiMenu.classList.add('hidden');
+    uiGameOver.style.display = 'none';
+    uiHud.style.display = 'block';
+    elTimerContainer.style.display = 'block';
+
+    updateHUD();
+    requestAnimationFrame(loop);
+}
+
+function showMenu() {
+    gameState.isPlaying = false;
+    uiMenu.classList.remove('hidden');
+    uiGameOver.style.display = 'none';
+    uiHud.style.display = 'none';
+}
+
+function endGame(reason) {
+    gameState.isPlaying = false;
+    uiGameOver.style.display = 'flex';
+    elFinalScore.innerText = `Score Final: ${gameState.score}`;
+}
+
+function spawnCircle() {
+    const padding = 150;
+    const x = Math.random() * (CANVAS_W - padding * 2) + padding;
+    const y = Math.random() * (CANVAS_H - padding * 2) + padding;
+    
+    // Choix du type basé sur le score/difficulté
+    let type = 'normal';
+    const rand = Math.random();
+    
+    if (gameState.score > 5 && rand < 0.2) type = 'tank';
+    if (gameState.score > 10 && rand > 0.8) type = 'swipe';
+    
+    // Si le mode est infini, on mélange plus les types
+    if (gameState.mode === 'infinite' && gameState.score > 20) {
+        if (rand < 0.33) type = 'normal';
+        else if (rand < 0.66) type = 'tank';
+        else type = 'swipe';
+    }
+
+    gameState.circles.push(new Circle(x, y, type));
+}
+
+function updateHUD() {
+    elScore.innerText = `Score: ${gameState.score}`;
+    
+    if (gameState.mode === 'timed') {
+        elTime.innerText = `Temps: ${Math.ceil(gameState.timeLeft)}s`;
+        const pct = Math.max(0, (gameState.timeLeft / gameState.maxTime) * 100);
+        elTimerBar.style.width = `${pct}%`;
+        if (pct < 20) elTimerBar.style.background = '#ff4444';
+        else elTimerBar.style.background = '#fff';
+    } else {
+        // Mode Infini : On affiche le Score, mais la barre gère la survie
+        elTime.innerText = `Mode: Infini`;
+        // On garde la barre visible car elle sert à la survie
+    }
+}
+
+// Boucle principale
+let lastTime = 0;
+function loop(timestamp) {
+    if (!gameState.isPlaying) return;
+
+    const dt = timestamp - lastTime;
+    lastTime = timestamp;
+
+    // Clear
+    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+
+    // Gestion Temps (Mode Timed)
+    if (gameState.mode === 'timed') {
+        gameState.timeLeft -= dt / 1000;
+        if (gameState.timeLeft <= 0) {
+            gameState.timeLeft = 0;
+            endGame();
+            return;
+        }
+    } else {
+        // Mode Infinit: Augmentation difficulté
+        gameState.difficultyMultiplier += 0.0005; 
+        gameState.spawnRate = Math.max(400, 1500 * (1/gameState.difficultyMultiplier));
+        
+        // GESTION DE LA MORT (Survie)
+        // On baisse la barre
+        gameState.survivalBarValue -= (gameState.survivalDecayRate * (dt / 1000));
+        
+        // Si la barre est vide -> Mort
+        if (gameState.survivalBarValue <= 0) {
+            gameState.survivalBarValue = 0;
+            endGame();
+            return;
+        }
+    }
+
+    // Spawning
+    if (timestamp - gameState.lastSpawnTime > gameState.spawnRate) {
+        spawnCircle();
+        gameState.lastSpawnTime = timestamp;
+    }
+
+    // Update & Draw Circles
+    // On inverse pour supprimer facilement
+    for (let i = gameState.circles.length - 1; i >= 0; i--) {
+        const c = gameState.circles[i];
+        c.update(dt / 1000);
+        c.draw(ctx);
+
+        if (c.markedForDeletion) {
+            gameState.circles.splice(i, 1);
+            gameState.score++;
+            
+            // RECHARGE LA BARRE DE SURVIE
+            if (gameState.mode === 'infinite') {
+                gameState.survivalBarValue = Math.min(100, gameState.survivalBarValue + 20); // Remplir de 20%
+            }
+            
+            // Augmentation difficulté infinie
+            if (gameState.mode === 'infinite') {
+                gameState.spawnRate = Math.max(300, 1500 * Math.pow(0.98, gameState.score));
+            }
+        }
+    }
+
+    // Gestion Swipe Logic spécifique
+    if (activeSwipeCircle) {
+        drawSwipeProgress(activeSwipeCircle);
+    }
+
+    updateHUD();
+    renderSurvivalBar();
+    requestAnimationFrame(loop);
+}
+
+function updateHUD() {
+    elScore.innerText = `Score: ${gameState.score}`;
+    
+    if (gameState.mode === 'timed') {
+        elTime.innerText = `Temps: ${Math.ceil(gameState.timeLeft)}s`;
+        const pct = Math.max(0, (gameState.timeLeft / gameState.maxTime) * 100);
+        elTimerBar.style.width = `${pct}%`;
+        if (pct < 20) elTimerBar.style.background = '#ff4444';
+        else elTimerBar.style.background = '#fff';
+    } else {
+        // Mode Infini : Timer caché ou affiché comme info
+        elTime.innerText = `Mode: Infini`;
+        // La barre de survie est gérée dans renderSurvivalBar
+        elTimerContainer.style.display = 'block';
+    }
+}
+
+function renderSurvivalBar() {
+    if (gameState.mode !== 'infinite') return;
+    
+    // Afficher la barre de survie
+    const pct = Math.max(0, gameState.survivalBarValue);
+    elTimerBar.style.width = `${pct}%`;
+    
+    // Couleur dynamique
+    if (pct < 30) {
+        elTimerBar.style.background = '#ff4444'; // Rouge alarme
+    } else {
+        elTimerBar.style.background = '#fff';
+    }
+}
+
+// Gestionnaire d'événements Souris/Touch
+function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CANVAS_W / rect.width;
+    const scaleY = CANVAS_H / rect.height;
+    
+    let clientX, clientY;
+    if (e.touches) {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+    } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+    }
+
+    return {
+        x: (clientX - rect.left) * scaleX,
+        y: (clientY - rect.top) * scaleY
+    };
+}
+
+let activeSwipeCircle = null;
+
+function handleStart(e) {
+    if (!gameState.isPlaying) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    inputActive = true;
+    inputX = pos.x;
+    inputY = pos.y;
+    inputHistory = [{x: pos.x, y: pos.y}];
+
+    // Chercher le cercle supérieur (le plus récent ou celui devant)
+    let hitCircle = null;
+    // Parcourir à l'envers pour toucher le "dessus"
+    for (let i = gameState.circles.length - 1; i >= 0; i--) {
+        const c = gameState.circles[i];
+        if (c.checkHit(pos.x, pos.y)) {
+            hitCircle = c;
+            break;
+        }
+    }
+
+    if (hitCircle) {
+        if (hitCircle.type === 'swipe') {
+            activeSwipeCircle = hitCircle;
+        } else {
+            const destroyed = hitCircle.handleInputDown(pos.x, pos.y);
+            if (destroyed) {
+                // Score géré dans la boucle principale
+            }
+        }
+    }
+}
+
+function handleMove(e) {
+    if (!inputActive || !activeSwipeCircle) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    inputHistory.push({x: pos.x, y: pos.y});
+    
+    // Vérification visuelle ou logique supplémentaire si besoin
+}
+
+function handleEnd(e) {
+    if (!inputActive) return;
+    e.preventDefault();
+    inputActive = false;
+
+    if (activeSwipeCircle) {
+        // Vérifier si on a touché la fin du trait
+        const lastPos = inputHistory[inputHistory.length - 1];
+        const dist = Math.hypot(lastPos.x - activeSwipeCircle.pathEnd.x, lastPos.y - activeSwipeCircle.pathEnd.y);
+        
+        if (dist < 100) { // Tolérance
+            activeSwipeCircle.markedForDeletion = true;
+            gameState.score++;
+        }
+        activeSwipeCircle = null;
+    }
+}
+
+function drawSwipeProgress(circle) {
+    // Dessiner le trait tracé par l'utilisateur
+    if (inputHistory.length < 2) return;
+
+    ctx.beginPath();
+    ctx.moveTo(inputHistory[0].x, inputHistory[0].y);
+    for (let i = 1; i < inputHistory.length; i++) {
+        ctx.lineTo(inputHistory[i].x, inputHistory[i].y);
+    }
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = 10;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+}
+
+// Listeners
+canvas.addEventListener('mousedown', handleStart);
+canvas.addEventListener('mousemove', handleMove);
+canvas.addEventListener('mouseup', handleEnd);
+
+canvas.addEventListener('touchstart', handleStart, {passive: false});
+canvas.addEventListener('touchmove', handleMove, {passive: false});
+canvas.addEventListener('touchend', handleEnd, {passive: false});
+
+// Initialisation
+resize();
+
+</script>
+</body>
+</html>
